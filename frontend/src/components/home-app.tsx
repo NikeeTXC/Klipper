@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  AlertCircle, ArrowRight, ArrowUp, Captions, CaptionsOff, Check, ChevronDown, Crop, FileVideo,
+  AlertCircle, ArrowRight, ArrowUp, AtSign, Captions, CaptionsOff, Check, ChevronDown, Crop, FileVideo,
   Loader2, Paintbrush, Paperclip, Upload, Wand2, X, Youtube,
 } from "lucide-react";
 import { CaptionSizeControl } from "@/components/caption-size-control";
@@ -13,6 +13,7 @@ import { GenerationCard } from "@/components/app/generation-card";
 import { VideoDownloadStatus } from "@/components/app/video-download-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SubscriptionCancelBanner } from "@/components/subscription-cancel-banner";
 import { UpgradeDialog, UpgradeNudge, getUpgradeState, upgradeReasonForError, type UpgradeReason } from "@/components/billing/upgrade-prompt";
@@ -88,6 +89,38 @@ export default function HomeApp() {
   const [pauseThresholdMs, setPauseThresholdMs] = useState("700");
   const [removeFillerWords, setRemoveFillerWords] = useState(true);
   const [filteredWords, setFilteredWords] = useState("");
+
+  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
+  const [watermarkText, setWatermarkText] = useState("");
+  const [watermarkPosition, setWatermarkPosition] = useState("top-left");
+  const [watermarkOpacity, setWatermarkOpacity] = useState(0.85);
+  const [watermarkFontSize, setWatermarkFontSize] = useState(28);
+
+  useEffect(() => {
+    try {
+      const savedText = localStorage.getItem("supoclip_watermark_text");
+      const savedPos = localStorage.getItem("supoclip_watermark_position");
+      const savedEnabled = localStorage.getItem("supoclip_watermark_enabled");
+      if (savedText) setWatermarkText(savedText);
+      if (savedPos) setWatermarkPosition(savedPos);
+      if (savedEnabled === "true") setWatermarkEnabled(true);
+    } catch {}
+  }, []);
+
+  const handleWatermarkTextChange = (val: string) => {
+    setWatermarkText(val);
+    try { localStorage.setItem("supoclip_watermark_text", val); } catch {}
+  };
+
+  const handleWatermarkPositionChange = (pos: string) => {
+    setWatermarkPosition(pos);
+    try { localStorage.setItem("supoclip_watermark_position", pos); } catch {}
+  };
+
+  const handleWatermarkToggle = (enabled: boolean) => {
+    setWatermarkEnabled(enabled);
+    try { localStorage.setItem("supoclip_watermark_enabled", enabled ? "true" : "false"); } catch {}
+  };
 
   const [recent, setRecent] = useState<GenerationSummary[] | null>(null);
   const [billingSummary, updateBillingSummary] = useBillingSummary(Boolean(session?.user?.id));
@@ -232,6 +265,14 @@ export default function HomeApp() {
         videoUrl = await uploadVideoFile(file);
       }
 
+      const watermarkPayload = watermarkEnabled && watermarkText.trim() ? {
+        text: watermarkText.trim(),
+        position: watermarkPosition,
+        opacity: watermarkOpacity,
+        font_size: watermarkFontSize,
+        font_color: "#FFFFFF",
+      } : null;
+
       setStatusMessage(sourceType === "youtube" ? "Checking video length…" : "Starting generation…");
       const startResponse = await fetch("/api/tasks/create", {
         method: "POST",
@@ -247,6 +288,7 @@ export default function HomeApp() {
           pause_threshold_ms: normalizedPauseThreshold,
           remove_filler_words: removeFillerWords,
           filtered_words: normalizedFilteredWords,
+          watermark_settings: watermarkPayload,
         }),
       });
 
@@ -531,6 +573,94 @@ export default function HomeApp() {
                 {addSubtitles ? <Captions className="size-3.5" /> : <CaptionsOff className="size-3.5" />}
                 {addSubtitles ? "Captions" : "No captions"}
               </Chip>
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Chip disabled={controlsDisabled} active={watermarkEnabled && Boolean(watermarkText.trim())}>
+                    <AtSign className="size-3.5" />
+                    {watermarkEnabled && watermarkText.trim() ? watermarkText.trim() : "Watermark"}
+                    <ChevronDown className="size-3 opacity-60" />
+                  </Chip>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-[min(92vw,320px)] space-y-4 rounded-2xl">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium">Custom Watermark</p>
+                      <Switch id="wm-toggle" checked={watermarkEnabled} onCheckedChange={handleWatermarkToggle} />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Add agency branding or TikTok handle to all clips.</p>
+                  </div>
+
+                  {watermarkEnabled && (
+                    <>
+                      <div className="space-y-1.5">
+                        <label htmlFor="wm-text" className="text-xs font-medium text-muted-foreground">Watermark Text</label>
+                        <Input
+                          id="wm-text"
+                          value={watermarkText}
+                          onChange={(e) => handleWatermarkTextChange(e.target.value)}
+                          placeholder="@yourhandle or Agency"
+                          className="h-8"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">Position</span>
+                        <div className="grid grid-cols-3 gap-1.5 text-xs">
+                          {[
+                            { id: "top-left", label: "↖ Top Left" },
+                            { id: "top-center", label: "↑ Top" },
+                            { id: "top-right", label: "↗ Top Right" },
+                            { id: "bottom-left", label: "↙ Btm Left" },
+                            { id: "bottom-center", label: "↓ Btm Center" },
+                            { id: "bottom-right", label: "↘ Btm Right" },
+                          ].map((pos) => (
+                            <button
+                              key={pos.id}
+                              type="button"
+                              onClick={() => handleWatermarkPositionChange(pos.id)}
+                              className={cn(
+                                "rounded-lg border px-1.5 py-1.5 text-center transition-colors hover:bg-accent",
+                                watermarkPosition === pos.id && "border-foreground bg-accent font-medium ring-1 ring-foreground"
+                              )}
+                            >
+                              {pos.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-medium text-muted-foreground">Opacity</span>
+                          <span className="text-muted-foreground">{Math.round(watermarkOpacity * 100)}%</span>
+                        </div>
+                        <Slider
+                          value={[watermarkOpacity]}
+                          min={0.2}
+                          max={1.0}
+                          step={0.05}
+                          onValueChange={([val]) => setWatermarkOpacity(val)}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-medium text-muted-foreground">Size</span>
+                          <span className="text-muted-foreground">{watermarkFontSize}px</span>
+                        </div>
+                        <Slider
+                          value={[watermarkFontSize]}
+                          min={18}
+                          max={48}
+                          step={2}
+                          onValueChange={([val]) => setWatermarkFontSize(val)}
+                        />
+                      </div>
+                    </>
+                  )}
+                </PopoverContent>
+              </Popover>
 
               <Popover>
                 <PopoverTrigger asChild>

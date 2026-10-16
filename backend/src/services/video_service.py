@@ -47,6 +47,36 @@ logger = logging.getLogger(__name__)
 UPLOAD_URL_PREFIX = "upload://"
 
 
+def _make_sync_progress_callback(
+    async_cb: Optional[Callable[..., Awaitable[None]]],
+) -> Optional[Callable[[int, str], None]]:
+    """Bridge a synchronous thread callback to an asynchronous progress coroutine."""
+    if not async_cb:
+        return None
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+    def sync_cb(percent: int, message: str) -> None:
+        try:
+            coro = async_cb(percent, message, "processing")
+        except TypeError:
+            try:
+                coro = async_cb(percent, message)
+            except Exception:
+                return
+        except Exception:
+            return
+
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except Exception as err:
+            logger.debug(f"Failed to dispatch sync progress: {err}")
+
+    return sync_cb
+
+
 class VideoService:
     """Service for video processing operations."""
 
@@ -134,12 +164,18 @@ class VideoService:
         raise ValueError("Only upload:// references are allowed for local video sources")
 
     @staticmethod
-    async def download_video(url: str, task_id: Optional[str] = None) -> Optional[Path]:
+    async def download_video(
+        url: str,
+        task_id: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+    ) -> Optional[Path]:
         """
         Download a YouTube video asynchronously.
         """
         logger.info(f"Starting video download: {url}")
-        video_path = await async_download_youtube_video(url, 3, task_id)
+        video_path = await async_download_youtube_video(
+            url, 3, task_id, progress_callback=progress_callback
+        )
 
         if not video_path:
             logger.error(f"Failed to download video: {url}")
@@ -166,6 +202,7 @@ class VideoService:
         video_path: Path,
         processing_mode: str = "balanced",
         source_url: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> str:
         """
         Generate transcript from video using the configured provider
@@ -181,7 +218,11 @@ class VideoService:
             speech_model = runtime_config.fast_mode_transcript_model
 
         transcript = await run_in_thread(
-            get_video_transcript, video_path, speech_model, source_url
+            get_video_transcript,
+            video_path,
+            speech_model,
+            source_url,
+            progress_callback=progress_callback,
         )
         logger.info(f"Transcript generated: {len(transcript)} characters")
         return transcript
@@ -254,6 +295,7 @@ class VideoService:
         output_format: str = "vertical",
         add_subtitles: bool = True,
         cleanup_settings: Optional[Dict[str, Any]] = None,
+        watermark_settings: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Render a single clip in the thread pool and return clip_info dict, or None on failure."""
         try:
@@ -321,6 +363,8 @@ class VideoService:
                 output_format,
                 keep_ranges,
                 segment.get("hook_title"),
+                True,
+                watermark_settings,
             )
 
             if not success:
@@ -408,6 +452,7 @@ class VideoService:
                           Signature: async def callback(progress: int, message: str, status: str)
         """
         video_path: Optional[Path] = None
+        sync_progress = _make_sync_progress_callback(progress_callback)
         try:
             runtime_config = get_config()
             duration_limit = (
@@ -420,7 +465,7 @@ class VideoService:
                 raise Exception("Task cancelled")
 
             if progress_callback:
-                await progress_callback(10, "Downloading video...", "processing")
+                await progress_callback(5, "Connecting to video stream...", "processing")
 
             if source_type == "youtube":
                 video_info = await async_get_youtube_video_info(url, task_id=task_id)
@@ -443,13 +488,17 @@ class VideoService:
                             f"Maximum allowed duration is {mins} minutes."
                         )
 
-                video_path = await VideoService.download_video(url, task_id=task_id)
+                video_path = await VideoService.download_video(
+                    url, task_id=task_id, progress_callback=sync_progress
+                )
                 if not video_path:
                     raise Exception("Failed to download video")
             else:
                 video_path = VideoService.resolve_local_video_path(url)
                 if not video_path.exists():
                     raise Exception("Video file not found")
+                if progress_callback:
+                    await progress_callback(25, "Video loaded successfully", "processing")
 
             # Post-download duration guard (catches cases where preflight info was unavailable)
             file_duration = VideoService._get_file_duration(video_path)
@@ -470,9 +519,6 @@ class VideoService:
             if should_cancel and await should_cancel():
                 raise Exception("Task cancelled")
 
-            if progress_callback:
-                await progress_callback(30, "Generating transcript...", "processing")
-
             transcript = cached_transcript
             # Database text alone cannot recreate timed captions or cleanup.
             # Repair older caches whose word-timing sidecar was removed.
@@ -482,11 +528,17 @@ class VideoService:
                 and not (load_cached_transcript_data(video_path) or {}).get("words")
             )
             if not transcript or needs_word_timings:
+                if progress_callback:
+                    await progress_callback(25, "Transcribing audio...", "processing")
                 transcript = await VideoService.generate_transcript(
                     video_path,
                     processing_mode=processing_mode,
                     source_url=url if source_type == "youtube" else None,
+                    progress_callback=sync_progress,
                 )
+            else:
+                if progress_callback:
+                    await progress_callback(50, "Transcript loaded from cache", "processing")
 
             # Step 3: AI analysis
             if should_cancel and await should_cancel():
@@ -528,6 +580,10 @@ class VideoService:
 
             if relevant_parts is None:
                 try:
+                    if progress_callback:
+                        await progress_callback(
+                            52, "Analyzing audio signals & engagement...", "processing"
+                        )
                     clip_signals = await run_in_thread(
                         build_clip_signal_summary,
                         video_path,
@@ -536,6 +592,11 @@ class VideoService:
                 except Exception as exc:
                     logger.warning("Clip signal extraction failed: %s", exc)
                     clip_signals = None
+
+                if progress_callback:
+                    await progress_callback(
+                        56, "Finding viral moments with AI...", "processing"
+                    )
                 relevant_parts = await VideoService.analyze_transcript(
                     transcript,
                     clip_signals=clip_signals,
@@ -546,7 +607,7 @@ class VideoService:
                 raise Exception("Task cancelled")
 
             if progress_callback:
-                await progress_callback(70, "Creating video clips...", "processing")
+                await progress_callback(68, "Preparing video clips...", "processing")
 
             raw_segments = relevant_parts.most_relevant_segments
             segments_json: List[Dict[str, Any]] = []

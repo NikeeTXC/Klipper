@@ -40,15 +40,16 @@ class YouTubeDownloader:
     def get_optimal_download_options(
         self,
         video_id: str,
+        progress_callback: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Get optimal yt-dlp options for high-quality downloads."""
         output_path = self.temp_dir / f"{video_id}.%(ext)s"
 
         opts = {
             "outtmpl": str(output_path),
-            # Use best available video/audio to avoid quality caps from container constraints.
-            "format": "bestvideo*+bestaudio/best",
-            "format_sort": ["res", "fps"],
+            # Cap at 1080p (ideal for 9:16 vertical shorts) to avoid huge 4K downloads
+            "format": "bestvideo*[height<=1080]+bestaudio/best[height<=1080]/best",
+            "format_sort": ["res:1080", "fps"],
             "merge_output_format": "mp4",
             "writesubtitles": False,
             "writeautomaticsub": False,
@@ -58,6 +59,7 @@ class YouTubeDownloader:
             "socket_timeout": 30,
             "retries": 5,  # Increased retries
             "fragment_retries": 5,
+            "concurrent_fragment_downloads": 4,  # Parallel chunk downloads for 3-4x speed
             "http_chunk_size": 10485760,  # 10MB chunks
             # Quiet operation - only errors/warnings
             "quiet": True,
@@ -80,7 +82,46 @@ class YouTubeDownloader:
             "age_limit": None,
         }
 
+        if progress_callback:
+            last_progress_emit = 0.0
+
+            def progress_hook(d):
+                nonlocal last_progress_emit
+                status = d.get("status")
+                if status == "downloading":
+                    now = time.monotonic()
+                    if now - last_progress_emit < 0.5:
+                        return
+                    last_progress_emit = now
+                    total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                    downloaded = d.get("downloaded_bytes") or 0
+                    speed = d.get("_speed_str") or ""
+                    eta = d.get("_eta_str") or ""
+                    if total > 0:
+                        ratio = min(1.0, max(0.0, downloaded / total))
+                        overall_pct = 5 + int(ratio * 20)
+                        mb_down = downloaded / (1024 * 1024)
+                        mb_total = total / (1024 * 1024)
+                        pct_int = int(ratio * 100)
+                        msg = f"Downloading video: {mb_down:.1f}MB / {mb_total:.1f}MB ({pct_int}%)"
+                        if speed:
+                            msg += f" • {speed.strip()}"
+                        if eta:
+                            msg += f" • ETA {eta.strip()}"
+                        try:
+                            progress_callback(overall_pct, msg)
+                        except Exception:
+                            pass
+                elif status == "finished":
+                    try:
+                        progress_callback(25, "Download complete, preparing audio...")
+                    except Exception:
+                        pass
+
+            opts["progress_hooks"] = [progress_hook]
+
         return opts
+
 
 
 def _build_info_options() -> Dict[str, Any]:
@@ -496,6 +537,7 @@ def _download_youtube_video_with_ytdlp(
     url: str,
     max_retries: int = 3,
     task_id: Optional[str] = None,
+    progress_callback: Optional[Any] = None,
 ) -> Optional[Path]:
     """
     Download YouTube video with optimized settings and retry logic.
@@ -529,7 +571,10 @@ def _download_youtube_video_with_ytdlp(
         try:
             logger.info("Download attempt %s/%s", attempt + 1, max_retries)
 
-            ydl_opts = downloader.get_optimal_download_options(video_id)
+            ydl_opts = downloader.get_optimal_download_options(
+                video_id, progress_callback=progress_callback
+            )
+
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
@@ -598,6 +643,7 @@ def download_youtube_video(
     url: str,
     max_retries: int = 3,
     task_id: Optional[str] = None,
+    progress_callback: Optional[Any] = None,
 ) -> Optional[Path]:
     """
     Download YouTube video using the configured provider.
@@ -633,6 +679,7 @@ def download_youtube_video(
                 url,
                 max_retries,
                 task_id,
+                progress_callback=progress_callback,
             )
             if downloaded_path:
                 return downloaded_path
@@ -669,9 +716,13 @@ async def async_download_youtube_video(
     url: str,
     max_retries: int = 3,
     task_id: Optional[str] = None,
+    progress_callback: Optional[Any] = None,
 ) -> Optional[Path]:
     logger.info(f"Starting async YouTube download: {url}")
-    return await asyncio.to_thread(download_youtube_video, url, max_retries, task_id)
+    return await asyncio.to_thread(
+        download_youtube_video, url, max_retries, task_id, progress_callback
+    )
+
 
 
 def get_video_duration(url: str) -> Optional[int]:

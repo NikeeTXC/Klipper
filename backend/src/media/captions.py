@@ -280,6 +280,94 @@ def build_hook_title_ass(
     return style_line, events
 
 
+def build_watermark_ass(
+    watermark_settings: Dict[str, Any],
+    video_width: int,
+    video_height: int,
+    output_duration: float,
+    default_font_name: str,
+) -> Tuple[str, List[str]]:
+    """Generate ASS style line and dialogue event for a persistent custom watermark.
+
+    Supports positions:
+      'top-left', 'top-right', 'top-center',
+      'bottom-left', 'bottom-right', 'bottom-center',
+      'center'
+    with opacity, font size, custom margins, color, outline, and shadow.
+    """
+    text = str(watermark_settings.get("text", "")).strip()
+    if not text:
+        return "", []
+
+    position = str(watermark_settings.get("position", "top-left")).lower().strip()
+    try:
+        opacity = float(watermark_settings.get("opacity", 0.8))
+    except (ValueError, TypeError):
+        opacity = 0.8
+    opacity = max(0.1, min(1.0, opacity))
+
+    try:
+        base_font_size = int(watermark_settings.get("font_size", 28))
+    except (ValueError, TypeError):
+        base_font_size = 28
+    font_px = max(18, min(96, round(base_font_size * (video_width / 560.0))))
+
+    font_family = watermark_settings.get("font_family")
+    font_name = ass_font_name(font_family) if font_family else default_font_name
+
+    font_color = str(watermark_settings.get("font_color", "#FFFFFF"))
+    alpha = max(0, min(255, int(round((1.0 - opacity) * 255))))
+    alpha_hex = f"{alpha:02X}"
+
+    def to_ass_color(hex_str: str, a_hex: str) -> str:
+        c = (hex_str or "").strip().lstrip("#")
+        if len(c) == 6:
+            r, g, b = c[0:2], c[2:4], c[4:6]
+            return f"&H{a_hex}{b}{g}{r}"
+        return f"&H{a_hex}FFFFFF"
+
+    primary = to_ass_color(font_color, alpha_hex)
+    outline_alpha = min(255, alpha + 30)
+    outline = f"&H{outline_alpha:02X}000000"
+    back_color = f"&H{outline_alpha:02X}000000"
+
+    outline_px = max(2, font_px // 14)
+    shadow_px = max(1, font_px // 20)
+
+    scale_w = video_width / 1080.0
+    scale_h = video_height / 1920.0
+
+    offset_x = int(watermark_settings.get("offset_x", 48) * scale_w)
+    offset_y = int(watermark_settings.get("offset_y", 72) * scale_h)
+
+    # Safe bounds for TikTok and 9:16 vertical video
+    pos_map = {
+        "top-left": (7, offset_x, offset_y),
+        "top-center": (8, video_width // 2, offset_y),
+        "top-right": (9, video_width - offset_x, offset_y),
+        "center": (5, video_width // 2, video_height // 2),
+        "bottom-left": (1, offset_x, video_height - max(offset_y, int(220 * scale_h))),
+        "bottom-center": (2, video_width // 2, video_height - max(offset_y, int(220 * scale_h))),
+        "bottom-right": (3, video_width - max(offset_x, int(120 * scale_w)), video_height - max(offset_y, int(240 * scale_h))),
+    }
+
+    align, x_pos, y_pos = pos_map.get(position, pos_map["top-left"])
+
+    style_line = (
+        f"Style: Watermark,{font_name},{font_px},{primary},&H000000FF,{outline},{back_color},"
+        f"1,0,0,0,100,100,0,0,1,{outline_px},{shadow_px},{align},10,10,10,1"
+    )
+
+    end_time_str = ass_timestamp(max(3600.0, output_duration + 10.0))
+    escaped_text = escape_ass_text(text)
+    event_line = (
+        f"Dialogue: 2,0:00:00.00,{end_time_str},Watermark,,0,0,0,,"
+        f"{{\\an{align}\\pos({x_pos},{y_pos})}}{escaped_text}"
+    )
+
+    return style_line, [event_line]
+
+
 def build_assemblyai_ass_subtitles(
     video_path: Path,
     clip_start: float,
@@ -298,6 +386,7 @@ def build_assemblyai_ass_subtitles(
     caption_words: Optional[List[Dict[str, Any]]] = None,
     position_y_override: Optional[float] = None,
     highlight_words: Optional[List[str]] = None,
+    watermark_settings: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Generate animated word-synced ASS subtitles from cached AssemblyAI words.
 
@@ -307,6 +396,7 @@ def build_assemblyai_ass_subtitles(
     When ``hook_title`` is set, an AI-written headline is burned into the top
     safe area while the hook plays out (it renders even when word-synced
     captions are unavailable or disabled via ``include_captions``).
+    When ``watermark_settings`` is provided, a persistent custom watermark is burned.
     """
     transcript_data = load_cached_transcript_data(video_path)
 
@@ -327,8 +417,12 @@ def build_assemblyai_ass_subtitles(
             relevant_words = get_words_for_keep_ranges(transcript_data, keep_ranges)
         else:
             relevant_words = get_words_in_range(transcript_data, clip_start, clip_end)
-    if not relevant_words and not hook_title:
-        logger.warning("No words or hook title available for ASS subtitles")
+
+    has_watermark = bool(
+        watermark_settings and str(watermark_settings.get("text", "")).strip()
+    )
+    if not relevant_words and not hook_title and not has_watermark:
+        logger.warning("No words, hook title, or watermark available for ASS subtitles")
         return False
 
     # --- styling knobs (new template fields, all optional) ---
@@ -377,17 +471,18 @@ def build_assemblyai_ass_subtitles(
         else 1
     )
 
+    if keep_ranges:
+        ranges = normalize_source_ranges(keep_ranges)
+        fade = crossfade_fade_for_ranges(ranges)
+        output_duration = sum(end - start for start, end in ranges) - fade * max(
+            0, len(ranges) - 1
+        )
+    else:
+        output_duration = max(0.0, clip_end - clip_start)
+
     hook_style_block = ""
     hook_events: List[str] = []
     if hook_title:
-        if keep_ranges:
-            ranges = normalize_source_ranges(keep_ranges)
-            fade = crossfade_fade_for_ranges(ranges)
-            output_duration = sum(end - start for start, end in ranges) - fade * max(
-                0, len(ranges) - 1
-            )
-        else:
-            output_duration = max(0.0, clip_end - clip_start)
         hook_style_line, hook_events = build_hook_title_ass(
             hook_title,
             template,
@@ -398,6 +493,19 @@ def build_assemblyai_ass_subtitles(
             font_px,
         )
         hook_style_block = f"{hook_style_line}\n"
+
+    watermark_style_block = ""
+    watermark_events: List[str] = []
+    if has_watermark:
+        wm_style_line, watermark_events = build_watermark_ass(
+            watermark_settings,
+            video_width,
+            video_height,
+            output_duration,
+            font_name,
+        )
+        if wm_style_line:
+            watermark_style_block = f"{wm_style_line}\n"
 
     # Contextual emoji + emphasis annotations over the whole clip word list.
     emoji_by_idx, emphasis_idx = annotate_caption_words(
@@ -430,8 +538,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,{font_name},{font_px},{primary},&H000000FF,{outline},{back_color},1,0,0,0,100,100,0,0,{border_style},{outline_px},{shadow_px},5,60,60,60,1
-{hook_style_block}
-[Events]
+{hook_style_block}{watermark_style_block}[Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
@@ -535,12 +642,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{line_prefix}{effect}{chunk_text}"
             )
 
-    all_events = hook_events + events
+    all_events = watermark_events + hook_events + events
     output_ass_path.write_text(header + "\n".join(all_events) + "\n", encoding="utf-8")
     logger.info(
-        "Wrote ASS subtitles: %s (%d events%s)",
+        "Wrote ASS subtitles: %s (%d events%s%s)",
         output_ass_path,
         len(all_events),
         ", hook title" if hook_events else "",
+        ", watermark" if watermark_events else "",
     )
     return True

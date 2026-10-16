@@ -18,11 +18,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 # ---------------------------------------------------------------------------
 # Curated keyword -> emoji map. Keys are normalized (lowercase, alpha-numeric).
-# Lookup also tries a naive singular form, so "ideas"/"dollars" still match.
+# Lookup also tries a naive singular form and Indonesian morphological stems (-nya, -an, ber-, nge-).
 # Keep this tasteful and broad; the rate limiter keeps density reasonable.
 # ---------------------------------------------------------------------------
 EMOJI_KEYWORD_MAP: Dict[str, str] = {
-    # money / business
+    # money / business (English + Indonesian)
     "money": "💰", "cash": "💵", "dollar": "💵", "dollars": "💵", "rich": "🤑",
     "wealth": "💰", "wealthy": "💰", "millionaire": "🤑", "billionaire": "🤑",
     "million": "💰", "billion": "💰", "profit": "📈", "revenue": "📈",
@@ -32,20 +32,48 @@ EMOJI_KEYWORD_MAP: Dict[str, str] = {
     "company": "🏢", "startup": "🚀", "deal": "🤝", "sale": "🛒", "buy": "🛒",
     "sell": "💸", "bank": "🏦", "tax": "🧾", "taxes": "🧾", "budget": "📒",
     "save": "🏦", "savings": "🏦", "debt": "💳", "fund": "💰",
-    # growth / success / winning
+    # Indonesian money & business
+    "uang": "💰", "duit": "💵", "cuan": "💰", "rupiah": "💵", "dolar": "💵",
+    "kaya": "🤑", "kekayaan": "💰", "jutawan": "🤑", "miliarder": "🤑",
+    "juta": "💰", "miliar": "💰", "triliun": "💰", "untung": "📈",
+    "omzet": "📈", "omset": "📈", "gaji": "💸", "penghasilan": "💵",
+    "harga": "🏷️", "biaya": "💲", "gratis": "🆓", "investasi": "📊",
+    "saham": "📈", "kripto": "🪙", "bisnis": "💼", "perusahaan": "🏢",
+    "usaha": "💼", "jual": "💸", "beli": "🛒", "belanja": "🛒",
+    "pajak": "🧾", "anggaran": "📒", "hemat": "🏦", "tabungan": "🏦",
+    "utang": "💳", "hutang": "💳", "modal": "💰", "dana": "💰",
+    "pinjol": "⚠️", "cicilan": "💳", "lunas": "✅",
+
+    # growth / success / winning (English + Indonesian)
     "growth": "📈", "grow": "📈", "growing": "📈", "scale": "📊", "success": "🏆",
     "successful": "🏆", "win": "🏆", "winning": "🏆", "winner": "🥇", "won": "🏆",
     "goal": "🎯", "goals": "🎯", "target": "🎯", "achieve": "✅", "result": "✅",
     "results": "✅", "best": "🥇", "first": "🥇", "top": "⬆️", "champion": "🏆",
     "level": "🆙", "upgrade": "⬆️", "boost": "🚀", "rocket": "🚀",
-    # ideas / mind / learning
+    # Indonesian growth & success
+    "tumbuh": "📈", "kembang": "📈", "sukses": "🏆", "berhasil": "🏆",
+    "menang": "🏆", "juara": "🥇", "pemenang": "🥇", "tujuan": "🎯",
+    "capai": "✅", "hasil": "✅", "terbaik": "🥇", "prestasi": "🏆",
+    "naik": "⬆️", "meroket": "🚀", "maju": "🚀",
+
+    # ideas / mind / learning (English + Indonesian)
     "idea": "💡", "ideas": "💡", "think": "🤔", "thinking": "🤔", "thought": "💭",
     "smart": "🧠", "genius": "🧠", "brain": "🧠", "mind": "🧠", "learn": "📚",
     "learning": "📚", "study": "📚", "school": "🎓", "knowledge": "🧠",
     "lesson": "📖", "book": "📖", "books": "📚", "read": "📖", "question": "❓",
     "answer": "💡", "secret": "🤫", "truth": "💯", "fact": "📌", "facts": "💯",
     "remember": "🧠", "focus": "🎯", "discover": "🔍", "research": "🔬",
-    # emotion / hype
+    # Indonesian ideas & learning
+    "ide": "💡", "gagasan": "💡", "pikir": "🤔", "mikir": "🤔", "pikiran": "💭",
+    "otak": "🧠", "cerdas": "🧠", "pintar": "🧠", "jenius": "🧠", "ilmu": "🧠",
+    "belajar": "📚", "sekolah": "🎓", "kuliah": "🎓", "kampus": "🎓",
+    "pelajaran": "📖", "buku": "📖", "baca": "📖", "tanya": "❓",
+    "pertanyaan": "❓", "jawaban": "💡", "solusi": "💡", "rahasia": "🤫",
+    "bocoran": "🤫", "fakta": "💯", "kebenaran": "💯", "fokus": "🎯",
+    "riset": "🔬", "tips": "💡", "trik": "💡", "rumus": "📐", "metode": "📝",
+    "cara": "💡",
+
+    # emotion / hype (English + Indonesian)
     "love": "❤️", "loved": "❤️", "heart": "❤️", "amazing": "🤩", "incredible": "🤯",
     "insane": "🤯", "crazy": "🤯", "wow": "😮", "shocking": "😱", "scary": "😱",
     "fear": "😱", "happy": "😄", "happiness": "😄", "sad": "😢", "angry": "😡",
@@ -53,34 +81,75 @@ EMOJI_KEYWORD_MAP: Dict[str, str] = {
     "beautiful": "😍", "favorite": "⭐", "epic": "🤩", "magic": "✨",
     "powerful": "💪", "power": "⚡", "strong": "💪", "energy": "⚡",
     "stop": "✋", "warning": "⚠️", "danger": "⚠️", "boom": "💥", "explode": "💥",
-    # time
+    # Indonesian emotion & hype
+    "cinta": "❤️", "sayang": "❤️", "hati": "❤️", "keren": "🤩", "mantap": "👌",
+    "gila": "🤯", "parah": "🤯", "kacau": "🤯", "kaget": "😱", "syok": "😱",
+    "takut": "😱", "bahaya": "⚠️", "seram": "😱", "senang": "😄", "bahagia": "😄",
+    "sedih": "😢", "marah": "😡", "emosi": "😡", "kesal": "😤", "api": "🔥",
+    "panas": "🔥", "meledak": "💥", "hancur": "💥", "sempurna": "👌",
+    "favorit": "⭐", "ajaib": "✨", "hebat": "💪", "kuat": "💪", "tenaga": "⚡",
+    "energi": "⚡", "setop": "✋", "berhenti": "✋", "waspada": "⚠️",
+    "peringatan": "⚠️", "lucu": "😂", "kocak": "🤣", "ngakak": "🤣",
+    "ketawa": "😂", "lawak": "🤣", "bohong": "🤥", "hoaks": "🚫", "jujur": "💯",
+    "asli": "💯", "palsu": "❌", "zonk": "🤦‍♂️",
+
+    # time (English + Indonesian)
     "time": "⏰", "today": "📅", "tomorrow": "📅", "now": "⏰", "fast": "⚡",
     "quick": "⚡", "quickly": "⚡", "instantly": "⚡", "minute": "⏱️",
     "minutes": "⏱️", "hour": "⏰", "hours": "⏰", "day": "📅", "days": "📅",
     "year": "📆", "years": "📆", "future": "🔮", "forever": "♾️", "deadline": "⏳",
-    # people / social
+    # Indonesian time
+    "waktu": "⏰", "jam": "⏰", "hari": "📅", "besok": "📅", "kemarin": "📅",
+    "sekarang": "⏰", "cepat": "⚡", "kilat": "⚡", "instan": "⚡", "menit": "⏱️",
+    "detik": "⏱️", "tahun": "📆", "bulan": "📅", "minggu": "📅",
+    "selamanya": "♾️", "tenggat": "⏳",
+
+    # people / social (English + Indonesian)
     "people": "👥", "team": "🤝", "family": "👨‍👩‍👧", "friend": "🫂", "friends": "🫂",
     "everyone": "🙌", "everybody": "🙌", "you": "👉", "audience": "👀",
     "followers": "📲", "subscribe": "🔔", "viral": "📈", "famous": "🌟",
     "customer": "🛍️", "customers": "🛍️", "boss": "💼", "leader": "🫡",
-    # work / hustle / health
+    # Indonesian people & social
+    "orang": "👥", "tim": "🤝", "keluarga": "👨‍👩‍👧", "teman": "🫂", "kawan": "🫂",
+    "sahabat": "🫂", "semua": "🙌", "kalian": "👉", "kamu": "👉", "penonton": "👀",
+    "netizen": "👥", "follower": "📲", "pengikut": "📲", "pelanggan": "🛍️",
+    "bos": "💼", "atasan": "💼", "pemimpin": "🫡", "terkenal": "🌟",
+    "artis": "⭐", "seleb": "⭐", "konten": "📱", "video": "🎬",
+    "medsos": "📱", "tiktok": "📱", "youtube": "📺", "instagram": "📸",
+
+    # work / hustle / health (English + Indonesian)
     "work": "💼", "working": "💼", "hustle": "💪", "grind": "💪", "effort": "💪",
     "hard": "💪", "build": "🛠️", "building": "🏗️", "create": "🎨",
     "creating": "🎨", "health": "🏥", "healthy": "🥗", "food": "🍽️", "eat": "🍴",
     "gym": "🏋️", "workout": "🏋️", "muscle": "💪", "sleep": "😴", "water": "💧",
     "run": "🏃", "running": "🏃",
-    # tech / world
+    # Indonesian work & health
+    "kerja": "💼", "pekerjaan": "💼", "kantor": "🏢", "karir": "💼",
+    "semangat": "💪", "capek": "😫", "lelah": "😫", "bangun": "🛠️",
+    "karya": "🎨", "kesehatan": "🏥", "sehat": "🥗", "sakit": "🤒",
+    "makan": "🍽️", "makanan": "🍽️", "minum": "🥤", "kopi": "☕",
+    "olahraga": "🏃", "lari": "🏃", "otot": "💪", "tidur": "😴",
+
+    # tech / world (English + Indonesian)
     "ai": "🤖", "robot": "🤖", "tech": "💻", "technology": "💻", "computer": "💻",
     "phone": "📱", "internet": "🌐", "online": "🌐", "data": "📊", "code": "👨‍💻",
     "world": "🌍", "earth": "🌍", "global": "🌍", "space": "🚀", "science": "🔬",
     "game": "🎮", "games": "🎮", "music": "🎵", "video": "🎬", "movie": "🎬",
     "car": "🚗", "house": "🏠", "home": "🏠", "travel": "✈️", "light": "💡",
     "key": "🔑",
+    # Indonesian tech & modern life
+    "teknologi": "💻", "komputer": "💻", "laptop": "💻", "hp": "📱", "ponsel": "📱",
+    "gadget": "📱", "koding": "👨‍💻", "program": "👨‍💻", "aplikasi": "📲",
+    "dunia": "🌍", "bumi": "🌍", "musik": "🎵", "lagu": "🎵", "film": "🎬",
+    "bioskop": "🍿", "mobil": "🚗", "motor": "🏍️", "kendaraan": "🚗",
+    "rumah": "🏠", "apartemen": "🏢", "pesawat": "✈️", "liburan": "🏖️",
+    "kunci": "🔑", "kado": "🎁",
 }
 
 # Words that should be visually emphasised (highlight + pop) even without an
 # emoji. Superlatives, absolutes and hype words that anchor a sentence.
 POWER_WORDS: Set[str] = {
+    # English power words
     "never", "always", "everything", "nothing", "everyone", "nobody", "anyone",
     "best", "worst", "most", "biggest", "huge", "massive", "tiny", "every",
     "only", "first", "last", "free", "now", "today", "instantly", "forever",
@@ -89,6 +158,13 @@ POWER_WORDS: Set[str] = {
     "important", "remember", "mistake", "wrong", "right", "perfect", "ultimate",
     "powerful", "insane", "crazy", "incredible", "amazing", "shocking", "viral",
     "million", "billion", "thousand", "percent", "double", "triple", "ten",
+    # Indonesian power words & high-impact colloquialisms
+    "jangan", "wajib", "pasti", "harus", "beneran", "fakta", "bohong", "banget",
+    "fatal", "parah", "rahasia", "trik", "tips", "kesalahan", "bahaya", "selalu",
+    "tidak", "bukan", "semua", "terbaik", "terburuk", "pertama", "terakhir",
+    "gratis", "sekarang", "selamanya", "terbukti", "juta", "miliar", "triliun",
+    "sukses", "gagal", "penting", "ingat", "kunci", "keren", "gila", "kacau",
+    "luarbiasa", "spill", "untung", "rugi", "hatihati", "bocoran", "rugibesar",
 }
 
 _NORMALIZE_RE = re.compile(r"[^a-z0-9%]+")
@@ -111,6 +187,24 @@ def _singularize(token: str) -> str:
     return token
 
 
+def _indonesian_stem_candidates(token: str) -> List[str]:
+    """Extract root word candidates from common Indonesian prefixes and suffixes."""
+    candidates: List[str] = []
+    # Suffix -nya (duitnya, cuannya, bisnisnya, hidupnya, masalahnya)
+    if len(token) > 4 and token.endswith("nya"):
+        candidates.append(token[:-3])
+    # Suffix -an (jutaan, miliaran, ratusan, cuan-an)
+    if len(token) > 4 and token.endswith("an"):
+        candidates.append(token[:-2])
+    # Prefix ber- (berbisnis, berinvestasi, berkembang)
+    if len(token) > 5 and token.startswith("ber"):
+        candidates.append(token[3:])
+    # Prefix nge- / ng- (ngegame, ngoding)
+    if len(token) > 5 and token.startswith("nge"):
+        candidates.append(token[3:])
+    return candidates
+
+
 def _lookup_emoji(token: str, lookup: Dict[str, str]) -> Optional[str]:
     if not token:
         return None
@@ -119,7 +213,12 @@ def _lookup_emoji(token: str, lookup: Dict[str, str]) -> Optional[str]:
     singular = _singularize(token)
     if singular != token and singular in lookup:
         return lookup[singular]
+    # Check Indonesian stem candidates (-nya, -an, ber-, nge-)
+    for cand in _indonesian_stem_candidates(token):
+        if cand in lookup:
+            return lookup[cand]
     return None
+
 
 
 def build_emoji_lookup(ai_cues: Optional[List[Dict[str, Any]]]) -> Dict[str, str]:
@@ -180,8 +279,9 @@ def annotate_caption_words(
         is_number = bool(_NUMBER_RE.search(token))
         emoji = _lookup_emoji(token, lookup) if enable_emoji else None
 
-        # Emphasis: emoji words, power words, and numbers/percentages.
-        if enable_emphasis and (emoji or token in POWER_WORDS or is_number):
+        # Emphasis: emoji words, power words (including stems), and numbers/percentages.
+        is_power_word = token in POWER_WORDS or any(cand in POWER_WORDS for cand in _indonesian_stem_candidates(token))
+        if enable_emphasis and (emoji or is_power_word or is_number):
             emphasis_indices.add(idx)
 
         if not emoji or emoji_count >= max_emojis:

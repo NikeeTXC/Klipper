@@ -4,6 +4,7 @@ from typing import Any
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Callable
 from pathlib import Path
 import assemblyai as aai
 from ..config import get_config
@@ -23,6 +24,9 @@ from .common import (
     _WHISPER_AVAILABLE,
     _WHISPER_MODEL_CACHE,
     _whisper,
+    _FASTER_WHISPER_AVAILABLE,
+    _FASTER_WHISPER_MODEL_CACHE,
+    _FasterWhisperModel,
     logger,
 )
 from .ffmpeg import (
@@ -171,6 +175,38 @@ def _assemblyai_speech_models_value(speech_model: str) -> List[str]:
     return ["universal-3-pro", "universal-2"]
 
 
+def _get_faster_whisper_model(model_name: str = "base"):
+    """Load and cache a faster-whisper model by name."""
+    if not _FASTER_WHISPER_AVAILABLE:
+        raise RuntimeError("faster-whisper is not installed.")
+
+    if model_name not in _FASTER_WHISPER_MODEL_CACHE:
+        device = "cpu"
+        compute_type = "int8"
+        try:
+            import ctranslate2
+            if ctranslate2.get_cuda_device_count() > 0:
+                device = "cuda"
+                compute_type = "float16"
+        except Exception:
+            pass
+
+        logger.info(
+            "Loading faster-whisper model: %s (device: %s, compute_type: %s)",
+            model_name,
+            device,
+            compute_type,
+        )
+        download_root = "/root/.cache/whisper"
+        _FASTER_WHISPER_MODEL_CACHE[model_name] = _FasterWhisperModel(
+            model_name,
+            device=device,
+            compute_type=compute_type,
+            download_root=download_root,
+        )
+    return _FASTER_WHISPER_MODEL_CACHE[model_name]
+
+
 def _get_whisper_model(model_name: str = "base"):
     """Load and cache a Whisper model by name."""
     if not _WHISPER_AVAILABLE:
@@ -184,22 +220,106 @@ def _get_whisper_model(model_name: str = "base"):
 
 
 def transcribe_with_whisper(
-    video_path: Path, model_name: str = "base", language: Optional[str] = None
+    video_path: Path,
+    model_name: str = "base",
+    language: Optional[str] = None,
+    progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> Dict[str, Any]:
-    """Transcribe video using local Whisper with word-level timestamps.
+    """Transcribe video using local Whisper (or faster-whisper) with word-level timestamps.
 
     ``language`` None lets Whisper detect it; AssemblyAI-style codes such as
     ``en_us`` are reduced to the ISO 639-1 base Whisper expects.
     """
     audio_path = _prepare_audio_for_transcription(video_path)
-    model = _get_whisper_model(model_name)
     whisper_language = language.split("_", 1)[0] if language else None
+
+    if _FASTER_WHISPER_AVAILABLE:
+        try:
+            logger.info(
+                "Starting faster-whisper transcription with model: %s (language: %s)",
+                model_name,
+                whisper_language or "auto",
+            )
+            model = _get_faster_whisper_model(model_name)
+            segments_gen, info = model.transcribe(
+                str(audio_path),
+                language=whisper_language,
+                word_timestamps=True,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500),
+            )
+
+            all_segments: List[Dict[str, Any]] = []
+            full_text_parts: List[str] = []
+            total_duration = getattr(info, "duration", 0.0) or 0.0
+            last_logged_time = 0.0
+            last_progress_emit = 0.0
+
+            for seg in segments_gen:
+                seg_words = []
+                if seg.words:
+                    for w in seg.words:
+                        seg_words.append({
+                            "word": w.word,
+                            "start": w.start,
+                            "end": w.end,
+                            "probability": getattr(w, "probability", 1.0),
+                        })
+                all_segments.append({
+                    "id": getattr(seg, "id", None),
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text": seg.text,
+                    "words": seg_words,
+                })
+                full_text_parts.append(seg.text)
+
+                now = time.monotonic()
+                if seg.end - last_logged_time >= 15.0 or (total_duration > 0 and seg.end >= total_duration):
+                    pct = f" ({(seg.end / total_duration) * 100:.1f}%)" if total_duration > 0 else ""
+                    logger.info("Faster-Whisper progress: transcribed up to %.1fs / %.1fs%s", seg.end, total_duration, pct)
+                    last_logged_time = seg.end
+
+                if progress_callback and (now - last_progress_emit >= 0.8 or (total_duration > 0 and seg.end >= total_duration)):
+                    last_progress_emit = now
+                    if total_duration > 0:
+                        ratio = min(1.0, max(0.0, seg.end / total_duration))
+                        overall_pct = 25 + int(ratio * 25)
+                        curr_m, curr_s = divmod(int(seg.end), 60)
+                        tot_m, tot_s = divmod(int(total_duration), 60)
+                        pct_int = int(ratio * 100)
+                        msg = f"Transcribing audio: {curr_m:02d}:{curr_s:02d} / {tot_m:02d}:{tot_s:02d} ({pct_int}%)"
+                        try:
+                            progress_callback(overall_pct, msg)
+                        except Exception:
+                            pass
+
+
+            logger.info(
+                "Faster-Whisper finished transcribing %d segments (language: %s)",
+                len(all_segments),
+                info.language,
+            )
+            return {
+                "text": "".join(full_text_parts).strip(),
+                "segments": all_segments,
+                "language": info.language,
+            }
+        except Exception as e:
+            logger.warning(
+                "faster-whisper transcription failed (%s); falling back to standard Whisper",
+                e,
+                exc_info=True,
+            )
+
     logger.info(
-        "Starting Whisper transcription with model: %s (language: %s)",
+        "Starting standard Whisper transcription with model: %s (language: %s)",
         model_name,
         whisper_language or "auto",
     )
+    model = _get_whisper_model(model_name)
     return model.transcribe(str(audio_path), word_timestamps=True, language=whisper_language)
+
 
 
 def _whisper_result_to_transcript_data(whisper_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -317,6 +437,7 @@ def get_video_transcript(
     video_path: Path,
     speech_model: str = "universal",
     source_url: Optional[str] = None,
+    progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> str:
     """Get a video transcript using the configured provider.
 
@@ -329,7 +450,9 @@ def get_video_transcript(
     provider = runtime_config.transcription_provider
 
     if provider == "whisper":
-        return _get_transcript_with_whisper(video_path, runtime_config)
+        return _get_transcript_with_whisper(
+            video_path, runtime_config, progress_callback=progress_callback
+        )
     if provider == "youtube_captions":
         if not source_url:
             raise ValueError(
@@ -338,6 +461,7 @@ def get_video_transcript(
             )
         return _get_transcript_with_youtube_captions(source_url)
     return _get_transcript_with_assemblyai(video_path, speech_model, runtime_config)
+
 
 
 def _get_transcript_with_assemblyai(
@@ -404,12 +528,19 @@ def _get_transcript_with_assemblyai(
         raise
 
 
-def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
+def _get_transcript_with_whisper(
+    video_path: Path,
+    runtime_config,
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+) -> str:
     """Get transcript using local Whisper with word-level timestamps."""
     model_name = runtime_config.whisper_model
     logger.info("Starting Whisper transcription with model: %s", model_name)
     whisper_result = transcribe_with_whisper(
-        video_path, model_name, runtime_config.transcription_language or None
+        video_path,
+        model_name,
+        runtime_config.transcription_language or None,
+        progress_callback=progress_callback,
     )
 
     formatted_lines = format_transcript_for_analysis(whisper_result)
@@ -422,6 +553,7 @@ def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
         len(result),
     )
     return result
+
 
 
 def _get_transcript_with_youtube_captions(source_url: str) -> str:

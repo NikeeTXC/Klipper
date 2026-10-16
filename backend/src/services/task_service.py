@@ -229,6 +229,7 @@ class TaskService(ClipEditingMixin):
         should_cancel: Optional[Callable] = None,
         clip_ready_callback: Optional[Callable] = None,
         cleanup_settings: Optional[Dict[str, Any]] = None,
+        watermark_settings: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Process a task: download video, analyze, create clips.
@@ -368,6 +369,13 @@ class TaskService(ClipEditingMixin):
             clip_ids = []
             render_start = perf_counter()
 
+            if watermark_settings is None:
+                try:
+                    meta = await self.task_repo.load_source_metadata(self.db, task_id)
+                    watermark_settings = meta.get("watermark_settings") if meta else None
+                except Exception:
+                    pass
+
             for i, segment in enumerate(segments_to_render):
                 # Check cancellation
                 await check_cancelled()
@@ -394,6 +402,7 @@ class TaskService(ClipEditingMixin):
                     output_format,
                     add_subtitles,
                     normalized_cleanup_settings,
+                    watermark_settings=watermark_settings,
                 )
                 pending_clip_path = Path(clip_info["path"]) if clip_info else None
                 await check_cancelled()

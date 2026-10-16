@@ -195,6 +195,7 @@ def _merge_task_source_metadata(
     output_format: Any = None,
     add_subtitles: Any = None,
     cleanup_settings: Dict[str, Any] | None = None,
+    watermark_settings: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     merged = dict(existing or {})
 
@@ -208,6 +209,8 @@ def _merge_task_source_metadata(
         merged["add_subtitles"] = add_subtitles
     if cleanup_settings:
         merged.update(cleanup_settings)
+    if watermark_settings and isinstance(watermark_settings, dict):
+        merged["watermark_settings"] = watermark_settings
 
     return merged
 
@@ -325,6 +328,24 @@ async def create_task(request: Request, db: AsyncSession = Depends(get_db)):
     if not isinstance(add_subtitles, bool):
         add_subtitles = True
     cleanup_settings = new_task_cleanup_settings(data)
+    watermark_raw = data.get("watermark_settings")
+    watermark_settings = None
+    if isinstance(watermark_raw, dict) and str(watermark_raw.get("text", "")).strip():
+        try:
+            op = float(watermark_raw.get("opacity", 0.8))
+        except (ValueError, TypeError):
+            op = 0.8
+        try:
+            fs = int(watermark_raw.get("font_size", 28))
+        except (ValueError, TypeError):
+            fs = 28
+        watermark_settings = {
+            "text": str(watermark_raw.get("text", "")).strip(),
+            "position": str(watermark_raw.get("position", "top-left")).strip(),
+            "opacity": max(0.1, min(1.0, op)),
+            "font_size": max(12, min(72, fs)),
+            "font_color": str(watermark_raw.get("font_color", "#FFFFFF")),
+        }
     if not raw_source or not raw_source.get("url"):
         raise HTTPException(status_code=400, detail="Source URL is required")
 
@@ -371,6 +392,7 @@ async def create_task(request: Request, db: AsyncSession = Depends(get_db)):
                         output_format=output_format,
                         add_subtitles=add_subtitles,
                         cleanup_settings=cleanup_settings,
+                        watermark_settings=watermark_settings,
                     ),
                     db=db,
                 )
@@ -392,6 +414,7 @@ async def create_task(request: Request, db: AsyncSession = Depends(get_db)):
                     output_format,
                     add_subtitles,
                     cleanup_settings,
+                    watermark_settings,
                     _job_id=processing_job_id,
                 )
 
@@ -1158,6 +1181,8 @@ async def resume_task(
                 metadata.get("filtered_words"),
             )
 
+            watermark_settings = metadata.get("watermark_settings")
+
             if not source_url or not source_type:
                 raise HTTPException(status_code=400, detail="Task source URL is missing")
 
@@ -1209,6 +1234,7 @@ async def resume_task(
                         output_format,
                         add_subtitles,
                         cleanup_settings,
+                        watermark_settings,
                         _job_id=processing_job_id,
                     )
                 except Exception:

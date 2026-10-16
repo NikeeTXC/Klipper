@@ -261,9 +261,13 @@ def create_optimized_clip(
     keep_ranges: Optional[List[Tuple[float, float]]] = None,
     hook_title: Optional[str] = None,
     extend_to_sentence: bool = True,
+    watermark_settings: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    """Create clip with optional subtitles. output_format: 'vertical' (9:16) or 'original' (keep source size)."""
+    """Create clip with optional subtitles and custom watermark. output_format: 'vertical' (9:16) or 'original' (keep source size)."""
     try:
+        has_watermark = bool(
+            watermark_settings and str(watermark_settings.get("text", "")).strip()
+        )
         if keep_ranges:
             effective_keep_ranges = normalize_source_ranges(keep_ranges)
         else:
@@ -290,11 +294,11 @@ def create_optimized_clip(
         keep_original = output_format == "original"
         logger.info(
             f"Creating clip: {start_time:.1f}s - {end_time:.1f}s ({duration:.1f}s) "
-            f"subtitles={add_subtitles} template '{caption_template}' format={'original' if keep_original else 'vertical'}"
+            f"subtitles={add_subtitles} watermark={has_watermark} template '{caption_template}' format={'original' if keep_original else 'vertical'}"
         )
 
-        # Fast path: no subtitles + original = ffmpeg stream copy (no re-encoding)
-        if not add_subtitles and not hook_title and keep_original and len(effective_keep_ranges) == 1 and extend_to_sentence:
+        # Fast path: no subtitles + no watermark + original = ffmpeg stream copy (no re-encoding)
+        if not add_subtitles and not hook_title and not has_watermark and keep_original and len(effective_keep_ranges) == 1 and extend_to_sentence:
             fast_path_start, fast_path_end = effective_keep_ranges[0]
             result = subprocess.run(
                 [
@@ -347,7 +351,7 @@ def create_optimized_clip(
 
             burn_ass_path: Optional[Path] = None
             fonts_dir: Optional[Path] = None
-            if (add_subtitles or hook_title) and build_assemblyai_ass_subtitles(
+            if (add_subtitles or hook_title or has_watermark) and build_assemblyai_ass_subtitles(
                 video_path,
                 start_time,
                 end_time,
@@ -361,6 +365,7 @@ def create_optimized_clip(
                 effective_keep_ranges,
                 hook_title=hook_title,
                 include_captions=add_subtitles,
+                watermark_settings=watermark_settings,
             ):
                 burn_ass_path = ass_path
                 fonts_dir = ass_fonts_dir(

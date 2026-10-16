@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install deno (required by yt-dlp for YouTube JS challenge solving)
-RUN curl -fsSL https://deno.land/install.sh | sh
+RUN curl -fsSL --retry 5 --retry-connrefused https://deno.land/install.sh | sh
 ENV DENO_DIR=/root/.deno
 ENV PATH="/root/.deno/bin:${PATH}"
 

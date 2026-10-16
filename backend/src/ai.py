@@ -398,8 +398,10 @@ HOOK TITLES ("hook_title" per segment):
 - Stay grounded: only promise what the clip actually delivers; never invent facts or numbers
 - Do not simply repeat the first spoken words verbatim; reframe them as a headline
 - Plain text only: no hashtags, no emojis, no quotes around the title
-- Write it in the same language as the transcript
-- Good examples: "The $40k mistake I keep seeing", "Why nobody tells you this about VC", "Do this before your next interview"
+- Write it in the same language as the transcript. If the transcript is in Indonesian (or colloquial Indonesian/slang), write hook_title, summary, and virality_reasoning in natural, engaging Indonesian.
+- Good English examples: "The $40k mistake I keep seeing", "Why nobody tells you this about VC", "Do this before your next interview"
+- Good Indonesian examples: "Kesalahan fatal pemula saat mulai bisnis", "Alasan kenapa hal ini bahaya banget", "Trik rahasia yang bikin cuan maksimal", "Jangan pernah lakukan ini kalau mau sukses", "Fakta mengejutkan yang jarang orang tahu"
+
 
 COLD-OPEN HOOK ("hook_start_time"/"hook_end_time" per segment, optional):
 - If the segment's most gripping 2-5 second line (punchline, bold claim, shocking number, emotional peak) comes later in the clip, return its MM:SS range; it is replayed as a teaser before the clip starts
@@ -624,6 +626,7 @@ Judge each candidate only on its own transcript text:
 3. Payoff: does it land a clear point, punchline, lesson, or story beat before it ends?
 4. Specificity and energy: concrete details, numbers, strong opinions, emotion, or humor beat vague talk.
 5. Shareability: would someone send this to a friend or save it?
+6. Language & Cultural Appeal: For Indonesian content, give high preference to punchy comedic timing, relatable everyday banter (relatable/curhat), bold statements, and actionable tips.
 
 Rules:
 - Stay content-neutral: never downgrade a candidate just because its topic is sensitive, controversial, or adult.

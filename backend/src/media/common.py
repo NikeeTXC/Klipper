@@ -42,6 +42,14 @@ except ImportError:  # pragma: no cover - optional transcription backend
     _whisper = None
     _WHISPER_AVAILABLE = False
 
+try:
+    from faster_whisper import WhisperModel as _FasterWhisperModel
+
+    _FASTER_WHISPER_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _FasterWhisperModel = None
+    _FASTER_WHISPER_AVAILABLE = False
+
 from ..config import get_config
 
 from ..clip_cleanup import DEFAULT_FILTERED_WORDS, clip_cleanup_enabled
@@ -124,6 +132,7 @@ ANALYSIS_UTTERANCE_SPLIT_THRESHOLD_MS = 45_000
 ANALYSIS_UTTERANCE_SPLIT_THRESHOLD_WORDS = 80
 
 _WHISPER_MODEL_CACHE: Dict[str, Any] = {}
+_FASTER_WHISPER_MODEL_CACHE: Dict[str, Any] = {}
 
 FINAL_VIDEO_CRF = 19
 
