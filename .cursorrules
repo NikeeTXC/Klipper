@@ -1,0 +1,17 @@
+# Klipper AI Instructions (.cursorrules)
+
+You are assisting with the Klipper codebase (an open-source AI video clipper with Indonesian localization and custom agency branding).
+
+## Architecture & Guidance
+- For detailed architecture, consult `AGENTS.md` and `CLAUDE.md`.
+- Backend: FastAPI + async ARQ workers in `backend/` (uses Python 3.11, uv, PostgreSQL via asyncpg, Redis, faster-whisper, ffmpeg).
+- Frontend: Next.js 15 (App Router), React 19, TailwindCSS v4, Lucide icons, Shadcn UI.
+- All database queries in backend use repository pattern with raw SQL (`text()` queries).
+- Blocking video processing operations MUST be run in `run_in_thread()` to prevent blocking the async loop.
+
+## Key Features & File Locations
+- Indonesian Slang & Copywriting: `backend/src/ai.py`
+- Watermark Rendering (ASS Subtitles Layer 2): `backend/src/media/captions.py` & `backend/src/services/video_service.py`
+- Watermark UI Popover: `frontend/src/components/home-app.tsx`
+- Video Editor Studio: `frontend/src/components/editor/` (`editor-workspace.tsx`, `timeline.tsx`, `inspector.tsx`, `preview.tsx`)
+- Whisper INT8 & VAD: `backend/src/media/transcription.py`

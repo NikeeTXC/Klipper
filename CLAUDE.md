@@ -257,3 +257,11 @@ the app via `APP_STORE_ID`/`APP_STORE_URL` in `frontend/src/lib/site.ts`
 - **Tools:** create/list/get/wait/cancel/resume/delete tasks, list/download/
   export clips, and public discovery (templates, transitions, fonts, B-roll).
 - Run with `cd mcp && uv run supoclip-mcp`. Details in `mcp/README.md`.
+
+## Klipper Indonesia Edition Modifications
+
+- **Faster-Whisper INT8 + Silero VAD**: Local transcription runs on `faster-whisper` with INT8 quantization on CPU and Silero VAD voice activity filtering. Models are persisted in Docker volume `supoclip_whisper_cache`.
+- **Indonesian Slang & Morphology**: `backend/src/ai.py` contains 200+ colloquial Indonesian keywords and a morphological stemmer (`-nya`, `ber-`, `nge-`, etc.) for viral clip selection.
+- **Custom Watermark & Agency Branding**: Native ASS Layer 2 watermark burn-in with 6 positions, opacity slider, font size, and safe zone margin. Handled in `backend/src/media/captions.py`, `backend/src/services/video_service.py`, and `frontend/src/components/home-app.tsx`.
+- **Windows Batch Helpers**: Root contains `1-install-windows.bat`, `2-start-windows.bat`, and `stop-windows.bat` for 1-click Docker operations on Windows.
+

@@ -53,3 +53,10 @@ PRs should include:
 ## Security & Configuration Tips
 - Never commit real secrets; use `.env.example` as the template.
 - Required runtime keys include `ASSEMBLY_AI_API_KEY` and either one hosted LLM provider key (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY`) or an Ollama model configuration (`LLM=ollama:*`, optional `OLLAMA_BASE_URL`).
+
+## Klipper Extensions & Customizations
+- **Faster-Whisper INT8 + Silero VAD**: Local whisper transcription is cached in `supoclip_whisper_cache` volume to avoid re-downloading model weights.
+- **Indonesian Slang & Morphology**: `backend/src/ai.py` contains 200+ colloquial Indonesian keywords and a morphological stemmer (`-nya`, `ber-`, `nge-`, etc.) for viral clip selection.
+- **Custom Watermark & Agency Branding**: Native ASS Layer 2 watermark burn-in with 6 positions, opacity slider, font size, and safe zone margin. Handled in `backend/src/media/captions.py`, `backend/src/services/video_service.py`, and `frontend/src/components/home-app.tsx`.
+- **Windows Batch Helpers**: Root contains `1-install-windows.bat`, `2-start-windows.bat`, and `stop-windows.bat` for 1-click Docker operations on Windows.
+
