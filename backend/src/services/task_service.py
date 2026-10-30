@@ -279,16 +279,19 @@ class TaskService(ClipEditingMixin):
                 raise TaskCancelled()
 
             # Progress callback wrapper
+            db_lock = asyncio.Lock()
+
             async def update_progress(
                 progress: int, message: str, status: str = "processing"
             ):
                 await check_cancelled()
-                changed = await self.task_repo.update_task_status(
-                    self.db, task_id, status, progress=progress,
-                    progress_message=message, expected_statuses=["processing"],
-                )
-                if changed is False:
-                    raise TaskCancelled()
+                async with db_lock:
+                    changed = await self.task_repo.update_task_status(
+                        self.db, task_id, status, progress=progress,
+                        progress_message=message, expected_statuses=["processing"],
+                    )
+                    if changed is False:
+                        raise TaskCancelled()
                 if progress_callback:
                     await progress_callback(progress, message, status)
 
@@ -500,7 +503,10 @@ class TaskService(ClipEditingMixin):
         except Exception as e:
             logger.error(f"Error processing task {task_id}: {e}")
             # Clear failed writes before recording the terminal error state.
-            await self.db.rollback()
+            try:
+                await self.db.rollback()
+            except Exception as rb_err:
+                logger.warning(f"Could not rollback session for task {task_id}: {rb_err}")
             if pending_clip_path and pending_clip_path != video_path:
                 try:
                     if pending_clip_path.resolve().is_relative_to(clips_output_dir.resolve()):

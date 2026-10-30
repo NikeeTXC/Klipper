@@ -47,9 +47,46 @@ logger = logging.getLogger(__name__)
 UPLOAD_URL_PREFIX = "upload://"
 
 
+class SyncProgressBridge:
+    """Bridge a synchronous thread callback to an asynchronous progress coroutine safely."""
+
+    def __init__(self, async_cb: Callable[..., Awaitable[None]], loop: asyncio.AbstractEventLoop):
+        self.async_cb = async_cb
+        self.loop = loop
+        self.last_future: Optional[Any] = None
+
+    def __call__(self, percent: int, message: str) -> None:
+        # Avoid queueing overlapping tasks on the event loop while previous is running
+        if self.last_future and not self.last_future.done():
+            return
+
+        try:
+            coro = self.async_cb(percent, message, "processing")
+        except TypeError:
+            try:
+                coro = self.async_cb(percent, message)
+            except Exception:
+                return
+        except Exception:
+            return
+
+        try:
+            self.last_future = asyncio.run_coroutine_threadsafe(coro, self.loop)
+        except Exception as err:
+            logger.debug(f"Failed to dispatch sync progress: {err}")
+
+    async def drain(self) -> None:
+        """Wait for any in-flight background progress dispatch to finish."""
+        if self.last_future and not self.last_future.done():
+            try:
+                await asyncio.wrap_future(self.last_future)
+            except Exception:
+                pass
+
+
 def _make_sync_progress_callback(
     async_cb: Optional[Callable[..., Awaitable[None]]],
-) -> Optional[Callable[[int, str], None]]:
+) -> Optional[SyncProgressBridge]:
     """Bridge a synchronous thread callback to an asynchronous progress coroutine."""
     if not async_cb:
         return None
@@ -58,23 +95,7 @@ def _make_sync_progress_callback(
     except RuntimeError:
         return None
 
-    def sync_cb(percent: int, message: str) -> None:
-        try:
-            coro = async_cb(percent, message, "processing")
-        except TypeError:
-            try:
-                coro = async_cb(percent, message)
-            except Exception:
-                return
-        except Exception:
-            return
-
-        try:
-            asyncio.run_coroutine_threadsafe(coro, loop)
-        except Exception as err:
-            logger.debug(f"Failed to dispatch sync progress: {err}")
-
-    return sync_cb
+    return SyncProgressBridge(async_cb, loop)
 
 
 class VideoService:
@@ -491,6 +512,8 @@ class VideoService:
                 video_path = await VideoService.download_video(
                     url, task_id=task_id, progress_callback=sync_progress
                 )
+                if sync_progress:
+                    await sync_progress.drain()
                 if not video_path:
                     raise Exception("Failed to download video")
             else:
@@ -536,6 +559,8 @@ class VideoService:
                     source_url=url if source_type == "youtube" else None,
                     progress_callback=sync_progress,
                 )
+                if sync_progress:
+                    await sync_progress.drain()
             else:
                 if progress_callback:
                     await progress_callback(50, "Transcript loaded from cache", "processing")
