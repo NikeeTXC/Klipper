@@ -10,6 +10,7 @@ from pathlib import Path
 import json
 import hashlib
 from time import perf_counter
+import asyncio
 
 
 from arq.constants import job_key_prefix, in_progress_key_prefix, expires_extra_ms
